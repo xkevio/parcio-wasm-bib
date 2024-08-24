@@ -1,0 +1,99 @@
+#let wasm-bib = plugin("parcio_wasm_bib.wasm")
+
+#let _cite-pages(cc) = context {
+  let cite-group = (:)
+  let citations = query(ref).filter(r => r.has("citation") and r.element == none)
+    
+  for c in citations {
+    if str(c.target) not in cite-group.keys() {
+      cite-group.insert(str(c.target), (c.location(),))
+    } else {
+      cite-group.at(str(c.target)).push(c.location())
+    }
+  }
+  
+  let locs = cite-group.at(str(cc))
+    .map(l => link(l, str(counter(page).at(l).first())))
+    .dedup(key: l => l.body)
+  
+  text(rgb("#606060"))[
+    #if locs.len() == 1 [
+      (Cited on page #locs.first())
+    ] else if locs.len() == 2 [
+      (Cited on pages #locs.at(0) and #locs.at(1))
+    ] else [
+      #let loc-str = locs.join(", ", last: " and ")
+      (Cited on pages #loc-str)
+    ]
+  ]
+}
+
+#let parcio-bib(path, title: [Bibliography], full: false, style: "ieee", enable-backrefs: false) = context {
+  let bibliography-file = read(path)
+  let used-citations = query(ref.where(element: none)).dedup().map(c => str(c.target))
+
+  let rendered-bibliography = wasm-bib.parcio_bib(
+    bytes(bibliography-file), 
+    bytes(if path.ends-with(regex("yml|yaml")) { "yaml" } else { "bibtex" }), 
+    bytes(style), 
+    bytes(used-citations.join(","))
+  )
+
+  /* WASM plugin returns `Rendered` as stringified list of three-tuples of 
+    (key, prefix, content) separated by "%%%" with `hanging-indent` and `sort` at
+    the end. The three-tuples are separated by single "%" characters.
+  */
+  let rendered-bibliography-str = str(rendered-bibliography).split("%%%");
+  let hanging-indent = eval(rendered-bibliography-str.at(-2))
+  let manual-sort = eval(rendered-bibliography-str.last())
+
+  let is-grid = not rendered-bibliography-str.first().contains("None")
+
+  // CSL did not specify sorting order, hence order equals citation order.
+  // Meaning, for now we query for all citations and sort accordingly.
+  // FIXME: prefix numbers are off after sorting obviously
+  let sorted-bib = if manual-sort {
+    rendered-bibliography-str.slice(0, -2).enumerate().sorted(key: ((idx, x)) => {
+      let used-idx = used-citations.position(s => s == x.split("%").first())
+      used-idx - idx
+    }).map(((.., x)) => x)
+  } else {
+    rendered-bibliography-str.slice(0, -2)
+  }
+
+  heading(title) + v(0.5em)
+  if is-grid {
+    grid(columns: 2, column-gutter: 0.65em, row-gutter: 1em,
+      ..for citation in sorted-bib {
+        let (key, prefix, cite-content) = citation.split("%")
+        let backref = if enable-backrefs { _cite-pages(key) } else { none }
+        let cite-location = query(ref.where(element: none)).filter(r => r.citation.key == label(key))
+        
+        (
+          link(cite-location.first().location(), prefix), 
+          eval(cite-content, mode: "markup") + backref
+        )
+      }
+    )
+  } else {
+    set par(hanging-indent: 1.5em) if hanging-indent
+    for citation in sorted-bib {
+      let (key, prefix, cite-content) = citation.split("%")
+      let backref = if enable-backrefs { _cite-pages(key) } else { none }
+      eval(cite-content, mode: "markup") + backref
+      v(1em, weak: true)
+    }
+  }
+}
+
+@DuweLMSF0B020
+@dataset
+
+#pagebreak()
+
+@DuweLMSF0B020
+
+#parcio-bib("refs.bib", style: "apa", enable-backrefs: true)
+
+#show bibliography: none
+#bibliography("refs.bib", style: "apa")
