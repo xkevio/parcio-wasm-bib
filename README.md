@@ -1,0 +1,1 @@
+Needs `wasm_minimal_protocol` next to the `typst-wasm-bib` folder for development.
