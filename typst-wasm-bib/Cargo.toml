@@ -8,6 +8,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 hayagriva = { git = "https://github.com/xkevio/hayagriva", features = ["archive"] }
+serde = { version = "1.0.209", features = ["derive"] }
+serde_json = "1.0.127"
 wasm-minimal-protocol = { path = "../wasm-minimal-protocol/" }
 
 
