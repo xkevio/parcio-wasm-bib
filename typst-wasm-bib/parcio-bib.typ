@@ -1,7 +1,7 @@
 #let wasm-bib = plugin("parcio_wasm_bib.wasm")
 
 // Links citation to correct bibliography entry.
-// WARNING: hacky will only work with direct "@"-citations.
+// WARNING: hacky and will only work with direct "@"-citations for now.
 #show ref.where(element: none): r => {
   if not str(r.target).starts-with("_") {
     show regex(".+"): x => link(label("_" + str(r.target)), x)
