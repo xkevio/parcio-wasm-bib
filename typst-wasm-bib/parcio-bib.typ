@@ -59,13 +59,14 @@ This allows for introspection code to query through all citations to generate ba
   let rendered-bibliography = wasm-bib.parcio_bib(
     bytes(bibliography-file), 
     bytes(if path.ends-with(regex("yml|yaml")) { "yaml" } else { "bibtex" }), 
-    bytes(style), 
+    bytes(style),
+    bytes(text.lang), 
     bytes(used-citations.join(","))
   )
 
-  /* WASM plugin returns `Rendered` as stringified list of three-tuples of 
-    (key, prefix, content) separated by "%%%" with `hanging-indent` and `sort` at
-    the end. The three-tuples are separated by single "%" characters.
+  /* WASM plugin returns `Rendered` as a list of JSON representations of 
+    (key, prefix, content) separated by "%%%" with `hanging-indent` 
+    and `sort` at the end.
   */
   let rendered-bibliography-str = str(rendered-bibliography).split("%%%");
   let hanging-indent = eval(rendered-bibliography-str.at(-2))
@@ -119,4 +120,4 @@ This allows for introspection code to query through all citations to generate ba
 @DuweLMSF0B020
 
 #set par(justify: true)
-#parcio-bib("refs.bib", style: "apa", title: [Faux Bibliography], enable-backrefs: true)
+#parcio-bib("refs.bib", style: "ieee", title: [Faux Bibliography], enable-backrefs: true)

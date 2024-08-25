@@ -5,24 +5,25 @@ use hayagriva::{
     archive::{locales, ArchivedStyle},
     citationberg::{IndependentStyle, LocaleCode, Style},
     io::{from_biblatex_str, from_yaml_str},
-    BibliographyDriver, BibliographyRequest, BufWriteFormat, CitationItem, CitationRequest,
-    Rendered,
+    BibliographyDriver, BibliographyItem, BibliographyRequest, BufWriteFormat, CitationItem,
+    CitationRequest, Rendered,
 };
 use serde::Serialize;
 use wasm_minimal_protocol::*;
 
 initiate_protocol!();
 
-// TODO: include locale/language as argument
 /// Generates a `Rendered` hayagriva bibliography object (and whether it is sorted) based on the given arguments.
 /// - `bib` represents the contents of either a BibTeX file or a hayagriva YAML file.
 /// - `format` should be `yaml | bibtex` in order to parse the file contents correctly.
 /// - `style` may either represent a file path to the given CSL style or its `ArchivedName`.
+/// - `lang` represents a RFC 1766 language code.
 /// - `cited` should contain all used citations when `full: false`.
 pub(crate) fn generate_bibliography(
     bib: &str,
     format: &str,
     style: &str,
+    lang: &str,
     cited: &[&str],
 ) -> (Rendered, bool) {
     let bib = if format == "yaml" {
@@ -43,15 +44,16 @@ pub(crate) fn generate_bibliography(
         indep
     };
 
-    let mut driver = BibliographyDriver::new();
     let locales = locales();
+    let locale_code = Some(LocaleCode(String::from(lang)));
+    let mut driver = BibliographyDriver::new();
 
     for entry in bib.iter().filter(|e| cited.contains(&e.key())) {
         let items = vec![CitationItem::with_entry(entry)];
         driver.citation(CitationRequest::new(
             items,
             &style,
-            Some(LocaleCode::en_us()),
+            locale_code.clone(),
             &locales,
             None,
         ));
@@ -60,7 +62,7 @@ pub(crate) fn generate_bibliography(
     let manual_sort = style.bibliography.clone().unwrap().sort.is_none();
     let result = driver.finish(BibliographyRequest {
         style: &style,
-        locale: Some(LocaleCode::en_us()),
+        locale: locale_code,
         locale_files: &locales,
     });
 
@@ -79,6 +81,7 @@ pub fn parcio_bib(
     bib: &[u8],
     format: &[u8],
     style: &[u8],
+    lang: &[u8],
     cited: &[u8],
 ) -> Result<Vec<u8>, String> {
     let cited_str = str::from_utf8(cited).unwrap();
@@ -88,6 +91,7 @@ pub fn parcio_bib(
         str::from_utf8(bib).unwrap(),
         str::from_utf8(format).unwrap(),
         str::from_utf8(style).unwrap(),
+        str::from_utf8(lang).unwrap(),
         &cited,
     );
 
@@ -103,26 +107,33 @@ pub fn parcio_bib(
     Content will be transformed into Typst markup via `BufWriteFormat`.
     Then, serialize into JSON and collect.
     */
-    let mut citation_strings = rendered_bib
-        .bibliography
-        .unwrap()
+    let Some(bibliography) = rendered_bib.bibliography else {
+        return Err("invalid bibliography".to_string());
+    };
+    let mut citation_strings = bibliography
         .items
         .iter()
-        .map(|b| {
-            let stringified_bib_item = BibItem {
-                key: b.key.clone(),
-                prefix: b.first_field.as_ref().map(|p| format!("{:#}", p)),
-                content: {
-                    let mut buffer = String::new();
-                    b.content
-                        .write_buf(&mut buffer, BufWriteFormat::Typst)
-                        .unwrap();
-                    buffer
-                },
-            };
+        .map(
+            |BibliographyItem {
+                 key,
+                 first_field,
+                 content,
+             }| {
+                let stringified_bib_item = BibItem {
+                    key: key.clone(),
+                    prefix: first_field.as_ref().map(|p| format!("{:#}", p)),
+                    content: {
+                        let mut buffer = String::new();
+                        content
+                            .write_buf(&mut buffer, BufWriteFormat::Typst)
+                            .unwrap();
+                        buffer
+                    },
+                };
 
-            serde_json::to_string(&stringified_bib_item).unwrap()
-        })
+                serde_json::to_string(&stringified_bib_item).unwrap()
+            },
+        )
         .collect::<Vec<_>>();
 
     // Append hanging-indent and manual-sort stringified boolean values at the end.
