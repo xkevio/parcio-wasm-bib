@@ -69,22 +69,10 @@ This allows for introspection code to query through all citations to generate ba
     and `sort` at the end.
   */
   let rendered-bibliography-str = str(rendered-bibliography).split("%%%");
-  let hanging-indent = eval(rendered-bibliography-str.at(-2))
-  let manual-sort = eval(rendered-bibliography-str.last())
+  let hanging-indent = eval(rendered-bibliography-str.last())
 
+  let sorted-bib = rendered-bibliography-str.slice(0, -1)
   let is-grid = json.decode(rendered-bibliography-str.first()).prefix != none
-
-  // CSL did not specify sorting order, hence order equals citation order.
-  // Meaning, for now we query for all citations and sort accordingly.
-  // FIXME: prefix numbers are off after sorting obviously
-  let sorted-bib = if manual-sort {
-    rendered-bibliography-str.slice(0, -2).enumerate().sorted(key: ((idx, x)) => {
-      let used-idx = used-citations.position(s => s == json.decode(x).key)
-      used-idx - idx
-    }).map(((.., x)) => x)
-  } else {
-    rendered-bibliography-str.slice(0, -2)
-  }
 
   heading(title) + v(0.5em)
   if is-grid {
@@ -120,4 +108,4 @@ This allows for introspection code to query through all citations to generate ba
 @DuweLMSF0B020
 
 #set par(justify: true)
-#parcio-bib("refs.bib", style: "ieee", title: [Faux Bibliography], enable-backrefs: true)
+#parcio-bib("refs.bib", style: "apa", title: [Faux Bibliography], enable-backrefs: true)

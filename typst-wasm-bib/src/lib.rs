@@ -25,7 +25,7 @@ pub(crate) fn generate_bibliography(
     style: &str,
     lang: &str,
     cited: &[&str],
-) -> (Rendered, bool) {
+) -> Rendered {
     let bib = if format == "yaml" {
         from_yaml_str(bib).unwrap()
     } else if format == "bibtex" {
@@ -48,25 +48,46 @@ pub(crate) fn generate_bibliography(
     let locale_code = Some(LocaleCode(String::from(lang)));
     let mut driver = BibliographyDriver::new();
 
-    for entry in bib.iter().filter(|e| cited.contains(&e.key())) {
-        let items = vec![CitationItem::with_entry(entry)];
-        driver.citation(CitationRequest::new(
-            items,
-            &style,
-            locale_code.clone(),
-            &locales,
-            None,
-        ));
+    // If sort is none, we manually sort by order of appearance within the Typst document.
+    // The parameter `cited` should represent this order, as such we iterate over it.
+    if style
+        .bibliography
+        .as_ref()
+        .is_some_and(|b| b.sort.is_none())
+    {
+        for key in cited {
+            let entry = bib.iter().find(|&x| x.key() == *key);
+            if let Some(entry) = entry {
+                let items = vec![CitationItem::with_entry(entry)];
+                driver.citation(CitationRequest::new(
+                    items,
+                    &style,
+                    locale_code.clone(),
+                    &locales,
+                    None,
+                ));
+            } else {
+                panic!("{}", format!("Cannot find {} in bibliography file", key))
+            }
+        }
+    } else {
+        for entry in bib.iter().filter(|e| cited.contains(&e.key())) {
+            let items = vec![CitationItem::with_entry(entry)];
+            driver.citation(CitationRequest::new(
+                items,
+                &style,
+                locale_code.clone(),
+                &locales,
+                None,
+            ));
+        }
     }
 
-    let manual_sort = style.bibliography.clone().unwrap().sort.is_none();
-    let result = driver.finish(BibliographyRequest {
+    driver.finish(BibliographyRequest {
         style: &style,
         locale: locale_code,
         locale_files: &locales,
-    });
-
-    (result, manual_sort)
+    })
 }
 
 #[derive(Serialize)]
@@ -87,7 +108,7 @@ pub fn parcio_bib(
     let cited_str = str::from_utf8(cited).unwrap();
     let cited = cited_str.split(",").collect::<Vec<_>>();
 
-    let (rendered_bib, manual_sort) = generate_bibliography(
+    let rendered_bib = generate_bibliography(
         str::from_utf8(bib).unwrap(),
         str::from_utf8(format).unwrap(),
         str::from_utf8(style).unwrap(),
@@ -138,7 +159,7 @@ pub fn parcio_bib(
 
     // Append hanging-indent and manual-sort stringified boolean values at the end.
     citation_strings.push(hanging_indent.to_string());
-    citation_strings.push(manual_sort.to_string());
+    // citation_strings.push(manual_sort.to_string());
     // Separate each item in `citation_strings` with "%%%" and turn into byte vector.
     Ok(citation_strings.join("%%%").as_bytes().to_vec())
 }
