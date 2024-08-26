@@ -25,6 +25,7 @@
     }
   }
   
+  if not cc in cite-group { return none }
   let locs = cite-group.at(cc)
     .map(l => link(l, str(counter(page).at(l).first())))
     .dedup(key: l => l.body)
@@ -59,6 +60,7 @@ This allows for introspection code to query through all citations to generate ba
   let rendered-bibliography = wasm-bib.parcio_bib(
     bytes(bibliography-file), 
     bytes(if path.ends-with(regex("yml|yaml")) { "yaml" } else { "bibtex" }), 
+    bytes(if full { "true" } else { "false" }),
     bytes(style),
     bytes(text.lang), 
     bytes(used-citations.join(","))
@@ -81,9 +83,15 @@ This allows for introspection code to query through all citations to generate ba
         let (key, prefix, content) = json.decode(citation)
         let backref = if enable-backrefs { _cite-pages(key) } else { none }
         let cite-location = query(ref.where(element: none)).filter(r => r.citation.key == label(key))
+
+        let backlink = if cite-location.len() == 0 [
+          #prefix#label("_" + key)
+        ] else [
+          #link(cite-location.first().location(), [#prefix#label("_" + key)])
+        ]
         
         (
-          link(cite-location.first().location(), [#prefix#label("_" + key)]), 
+          backlink, 
           eval(content, mode: "markup") + backref
         )
       }
