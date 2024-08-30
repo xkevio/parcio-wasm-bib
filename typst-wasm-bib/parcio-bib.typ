@@ -57,11 +57,18 @@ This allows for introspection code to query through all citations to generate ba
   let bibliography-file = read(path)
   let used-citations = query(ref.where(element: none)).dedup().map(c => str(c.target))
 
+  let (style, style-format) = if style.ends-with(".csl") {
+    (read(style), "csl")
+  } else {
+    (style, "text")
+  }
+
   let rendered-bibliography = wasm-bib.parcio_bib(
     bytes(bibliography-file), 
     bytes(if path.ends-with(regex("yml|yaml")) { "yaml" } else { "bibtex" }), 
     bytes(if full { "true" } else { "false" }),
     bytes(style),
+    bytes(style-format),
     bytes(text.lang), 
     bytes(used-citations.join(","))
   )

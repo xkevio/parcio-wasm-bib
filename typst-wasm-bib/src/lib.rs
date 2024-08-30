@@ -1,5 +1,4 @@
 use core::str;
-use std::fs;
 
 use hayagriva::{
     archive::{locales, ArchivedStyle},
@@ -17,7 +16,8 @@ initiate_protocol!();
 /// - `bib` represents the contents of either a BibTeX file or a hayagriva YAML file.
 /// - `format` should be `yaml | bibtex` in order to parse the file contents correctly.
 /// - `full` represents whether to include all works from the given bibliography files.
-/// - `style` may either represent a file path to the given CSL style or its `ArchivedName`.
+/// - `style` may either represent the raw text of the given CSL style or its `ArchivedName`.
+/// - `style_format` should be `csl | text` to tell the function what to do with `style`.
 /// - `lang` represents a RFC 1766 language code.
 /// - `cited` should contain all used citations when `full: false` or None when `full: true`.
 pub(crate) fn generate_bibliography(
@@ -25,22 +25,25 @@ pub(crate) fn generate_bibliography(
     format: &str,
     full: bool,
     style: &str,
+    style_format: &str,
     lang: &str,
     cited: Option<&[&str]>,
-) -> Rendered {
+) -> Result<Rendered, String> {
     let bib = if format == "yaml" {
         from_yaml_str(bib).unwrap()
     } else if format == "bibtex" {
         from_biblatex_str(bib).unwrap()
     } else {
-        panic!("Invalid format!")
+        return Err("Invalid format!".to_string());
     };
 
-    let style = if style.ends_with(".csl") {
-        IndependentStyle::from_xml(&fs::read_to_string(style).unwrap()).unwrap()
+    // If `style_format` is "csl", we expect Typst to pass the raw file contents for us,
+    // as we cannot read from the filesystem as a WASM application. Otherwise, use `archive`.
+    let style = if style_format == "csl" {
+        IndependentStyle::from_xml(style).unwrap()
     } else {
         let Style::Independent(indep) = ArchivedStyle::by_name(style).unwrap().get() else {
-            panic!("invalid independent style!")
+            return Err("invalid independent style!".to_string());
         };
 
         indep
@@ -69,7 +72,7 @@ pub(crate) fn generate_bibliography(
                     None,
                 ));
             } else {
-                panic!("{}", format!("Cannot find {} in bibliography file", key))
+                return Err(format!("Cannot find {} in bibliography file", key));
             }
         }
     } else {
@@ -88,11 +91,11 @@ pub(crate) fn generate_bibliography(
         }
     }
 
-    driver.finish(BibliographyRequest {
+    Ok(driver.finish(BibliographyRequest {
         style: &style,
         locale: locale_code,
         locale_files: &locales,
-    })
+    }))
 }
 
 #[derive(Serialize)]
@@ -103,16 +106,34 @@ pub struct BibItem {
 }
 
 #[wasm_func]
+pub fn get_bib_keys(bib: &[u8], format: &[u8]) -> Result<Vec<u8>, String> {
+    let bib = str::from_utf8(bib).unwrap();
+    let format = str::from_utf8(format).unwrap();
+
+    let bib = if format == "yaml" {
+        from_yaml_str(bib).unwrap()
+    } else if format == "bibtex" {
+        from_biblatex_str(bib).unwrap()
+    } else {
+        return Err(String::from("Invalid bibliography file format!"));
+    };
+
+    let bib_keys = bib.keys().collect::<Vec<_>>();
+    Ok(bib_keys.join("%%%").as_bytes().to_vec())
+}
+
+#[wasm_func]
 pub fn parcio_bib(
     bib: &[u8],
     format: &[u8],
     full: &[u8],
     style: &[u8],
+    style_format: &[u8],
     lang: &[u8],
     cited: &[u8],
 ) -> Result<Vec<u8>, String> {
     let cited_str = str::from_utf8(cited).unwrap();
-    let cited = cited_str.split(",").collect::<Vec<_>>();
+    let cited = cited_str.split(',').collect::<Vec<_>>();
     let full = str::from_utf8(full).is_ok_and(|f| f == "true");
 
     let rendered_bib = generate_bibliography(
@@ -120,9 +141,10 @@ pub fn parcio_bib(
         str::from_utf8(format).unwrap(),
         full,
         str::from_utf8(style).unwrap(),
+        str::from_utf8(style_format).unwrap(),
         str::from_utf8(lang).unwrap(),
         if full { None } else { Some(&cited) },
-    );
+    )?;
 
     // Check whether the style specifies hanging-indent.
     // Will enable a hanging-indent of 1.5em in Typst markup.
